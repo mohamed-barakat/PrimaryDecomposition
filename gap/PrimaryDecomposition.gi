@@ -65,7 +65,7 @@ InstallMethod ( IsPrimaryZeroDim,
 	[ IsHomalgObject ],
      function( I );
      
-        return IsPrime( RadicalForHomalgIdeal( I ) );
+       return IsPrime( RadicalForHomalgIdeal( I ) );
 
 end );
 
