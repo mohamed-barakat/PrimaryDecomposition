@@ -21,23 +21,19 @@ InstallMethod( IsPrimeZeroDim,
 	[ IsFinitelyPresentedSubmoduleRep and ConstructedAsAnIdeal ],
 	
   function( I )
-    local A, C, R, indets, mu, sf_mu, degI, i, RadI, n, RmodRadI, degRadI, e, L, iter, 
-          lambda, z, w, comb, bool, l, W, Wext;
-    
+    local A, C, R, indets, mu, sf_mu, degI, i, RadI, J, e, L, LModJ, degJ, n,
+          mat, iter, lambda, w;
+        
     A := HomalgRing( I );
     
     C := CoefficientsRing( A );
-    
-    ## preliminary test for perfectness, should be replaced by IsPerfect
-    if not IsPerfect( C ) then
-        TryNextMethod( );
-    fi;
     
     ## The first part of the algorithm computes the minimal polynomials of the 
     ## indeterminates of R and determines if at least one of them is irreducible 
     ## of degree dim_C( R/I ) or reducible. In the first case this element proves
     ## that the ideal I is a prime ideal, in the second case the ideal I cannot be
     ## a prime ideal.
+    ## STEP 1:
     
     R := A / I;
     
@@ -62,8 +58,9 @@ InstallMethod( IsPrimeZeroDim,
         fi;
     od;
     
-    ## Now the algorithms asks if I is a radical ideal.
-    ## If yes, it is a prime ideal. If not, then I cannot be a prime ideal.
+    ## Now the algorithms checks if I is a radical ideal.
+    ## If not, then I cannot be a prime ideal.
+    ## STEP 2:
     
     RadI := RadicalOfIdeal( I );
     
@@ -76,52 +73,72 @@ InstallMethod( IsPrimeZeroDim,
     ## degRadI or reducible.
     ## It is splitted into two cases: Finite and infinite coefficient fields.
     
+    ## if the coefficients ring C is perfect then the ideal J coincides with the 
+    ## radical ideal. 
+    if IsPerfect( C ) then
+        J := RadI;
+    else
+        
+        J := PreparationForRadicalOfIdeal( I );
+        e := CertainRows( HomalgIdentityMatrix( NrRows( J[1] ), HomalgRing( J[1] ) ), [1] );
+        
+        J := FGLMToGroebner( J, e );
+        
+    fi;
+    
     ## Some values needed in both cases:
+    ## STEP 3:
     
-    RmodRadI := A / RadI;
+    L := HomalgRing( J );
     
-    degRadI := NrRows( BasisOverCoefficientsRing( RmodRadI ) );
+    LModJ := L / J;
+    
+    degJ := NrRows( BasisOverCoefficientsRing( LModJ ) );
     
     n := Length( indets );
     
     e := HomalgIdentityMatrix( n, C );
     
-    indets := HomalgMatrix( indets, Length( indets ), 1, R );
+    indets := HomalgMatrix( indets, Length( indets ), 1, LModJ );
     
     ## First case: Coefficients ring is finite.
     ## The iteration goes over all ring elements.
     
     if IsFinite( C ) then
         
-        L := [];
-        L := List( [ 1 .. n ], i -> CertainRows( e, [i] ) );
+        ## STEP 4:
+        
+        mat := List( [ 1 .. n ], i -> CertainRows( e, [i] ) );
         
         iter := Iterator( e );
         
-        lambda := NextIterator( iter );  ## The zero element will be left out.
+        ## Skip the zero. Depends on the iterator!
+        lambda := NextIterator( iter );
         
         while true do
             
             lambda := NextIterator( iter );
 
-            if Position( L, lambda )= fail then
+            if Position( mat, lambda )= fail then
                 
-                w := ( R * lambda ) * indets;
+                ## STEP 5:
                 
-                mu := MinimalPolynomial( w );
+                w := ( LModJ * lambda ) * indets;
+                
+                mu := MinimalPolynomial( MatElm( w, 1, 1 ) );
             
-                if IsIrreducible( mu ) and Degree( mu ) = degRadI then
+                if IsIrreducible( mu ) and Degree( mu ) = degJ then
                 
                     return true;
                 
                 elif not IsIrreducible( mu ) then
                 
-                    I!.AZeroDivisor := w;
+                    I!.AZeroDivisor := MatElm( R * w , 1, 1 );
                     return false;
                 
                 fi;
                 
-                Add( L , lambda);
+                Add( mat, lambda);
                 
             fi;
                         
@@ -132,28 +149,37 @@ InstallMethod( IsPrimeZeroDim,
     ## Second case: Coefficients field is not finite.
     ## The iteration goes over elements, whose coefficients of the basis do 
     ## not lie in any hyperplane of the vectorspace over the coeffient field. 
-    L := e;
+    mat := e;
      
     while true do
         
-        lambda := GeneratorOfAnElementNotContainedInAnyHyperplane( L );
+        ## STEP 4:
         
-        w := ( R * lambda ) * indets;
+        if IsPerfect( C ) then
             
-        mu := MinimalPolynomial( w );
+            lambda := GeneratorOfAnElementNotContainedInAnyHyperplane( mat );
+        else
+            lambda := GeneratorOfAnElementNotContainedInAnyHyperplane( mat, CoefficientsRing( L ) );
+        fi;
         
-        if IsIrreducible( mu ) and Degree( mu ) = degRadI then
+        ## STEP 5:
+        
+        w := ( LModJ * lambda ) * indets;
+            
+        mu := MinimalPolynomial( MatElm( w, 1, 1 ) );
+        
+        if IsIrreducible( mu ) and Degree( mu ) = degJ then
             
             return true;
             
         elif not IsIrreducible( mu ) then
         
-            I!.AZeroDivisor := w;
+            I!.AZeroDivisor := MatElm( R * w , 1, 1 );
             return false;
         
         fi;
         
-        Add( L, lambda );
+        mat := UnionOfRows( mat, lambda );
         
     od;
     
@@ -166,7 +192,7 @@ InstallMethod ( IsPrimaryZeroDim,
         
   function( I )
     local bool, Rad;
-    
+        
     Rad := RadicalOfIdeal( I );
     
     bool := IsPrimeZeroDim( Rad );
@@ -188,7 +214,12 @@ InstallMethod( PrimaryDecompositionZeroDim,
         [ IsHomalgObject ],
 
   function( I )
-    local Decomp, A, R, a, fac, ListOfNonLinearFactors, factor, N, W, bas, i, J, M, j;
+    local Decomp, A, R, a, fac, ListOfNonLinearFactors, factor, N, W, bas, i,
+          J, M, j;
+    
+    if IsOne( I ) then
+        return [ ];
+    fi;
     
     Decomp := [ ]; 
     
@@ -228,7 +259,6 @@ InstallMethod( PrimaryDecompositionZeroDim,
             
             ListOfNonLinearFactors[i] := fac[i][2];
             
-            
         fi;
     od;
     
@@ -257,8 +287,8 @@ InstallMethod( PrimaryDecompositionZeroDim,
     
     ## Computing the Ideals M[i]. The Generators for M[ i ]: 
     ## all kernels W[j] without the ith and the generators of the ideal I.
-    ## At least compute inductively the primary decompositions of the M[i] and
-    ## return the union of them as the primary decomposition of the ideal I.
+    ## Compute inductively the primary decompositions of the M[i] and
+    ## return the union of them which is the primary decomposition of the ideal I.
         
     J := Iterated( W, UnionOfRows );
     
@@ -273,11 +303,12 @@ InstallMethod( PrimaryDecompositionZeroDim,
         
         M[i] := UnionOfRows( CertainRows( J , [ 1 .. j[i] ] ), CertainRows( J, [ j[i + 1] + 1 .. NrRows( J ) ] ) );
         
-        M[i] := UnionOfRows( A * MatrixOfGenerators( I ), A * M[i] );
+        M[i] := AppendToGroebnerBasisOfZeroDimensionalIdeal( M[i] );
         
-        M[i] := LeftSubmodule( BasisOfRows( M[i] ) );
+        M[i] := LeftSubmodule( EntriesOfHomalgMatrix( M[i] ) );
         
         Append( Decomp, PrimaryDecompositionZeroDim( M[i] ) );
+        
     od;
     
     return Decomp;
